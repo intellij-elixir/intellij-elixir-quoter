@@ -11,12 +11,27 @@ defmodule IntellijElixir.Quoter do
   @type error :: any
   @type token :: binary
 
-  @spec start_link(t) :: {:ok, pid}
-  @spec start_link(t, name: atom) :: {:ok, pid}
-  def start_link(args, opts \\ []) do
-    GenServer.start_link(__MODULE__, args, opts)
+  @doc """
+  Starts the Quoter GenServer.
+
+  ## Options
+
+    * `:name` - registers the process under the given name
+
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts \\ []) do
+    {name, _opts} = Keyword.pop(opts, :name)
+    server_opts = if name, do: [name: name], else: []
+    GenServer.start_link(__MODULE__, [], server_opts)
   end
 
+  @impl true
+  def init(state) do
+    {:ok, state}
+  end
+
+  @impl true
   @spec handle_call(String.t(), GenServer.from(), t) ::
           {:reply, {:ok, Macro.t()} | {:error, {line, error, token}}, t}
   def handle_call(code, _from, state) do

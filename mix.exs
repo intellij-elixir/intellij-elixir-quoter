@@ -7,7 +7,7 @@ defmodule IntellijElixir.Mixfile do
       deps: deps(),
       description: description(),
       docs: docs(),
-      elixir: "~> 1.7",
+      elixir: "~> 1.11",
       package: package(),
       preferred_cli_env: [
         credo: :test,
@@ -21,7 +21,7 @@ defmodule IntellijElixir.Mixfile do
   #
   # Type `mix help compile.app` for more information
   def application do
-    [applications: [:logger], mod: {IntellijElixir, []}]
+    [extra_applications: [:logger], mod: {IntellijElixir, []}]
   end
 
   # Dependencies can be Hex packages:
