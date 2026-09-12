@@ -1,28 +1,60 @@
-IntellijElixir
-==============
+IntelliJ Elixir Quoter
+======================
 
-[![Code Climate](https://codeclimate.com/github/KronicDeth/intellij_elixir/badges/gpa.svg)](https://codeclimate.com/github/KronicDeth/intellij_elixir)
+[![Test](https://github.com/intellij-elixir/intellij-elixir-quoter/actions/workflows/test.yml/badge.svg)](https://github.com/intellij-elixir/intellij-elixir-quoter/actions/workflows/test.yml)
 
-Elixir helpers for [intellj-elixir](https://github.com/KronicDeth/intellij-elixir),
-the [Elixir](http://elixir-lang.org) plugin for [JetBrains](https://www.jetbrains.com)
-IDEs.
+An Elixir release that gives [intellij-elixir](https://github.com/intellij-elixir/intellij-elixir), the
+[Elixir](https://elixir-lang.org) plugin for [JetBrains](https://www.jetbrains.com) IDEs, Elixir's own quoted
+form of a piece of code, so the plugin's tests can check that its parser quotes it the same way.
 
-# Building Release
+# Supported versions
 
-To build the release for production, set both the `MIX_ENV` and
-distillery environment to `prod`
+CI tests Elixir 1.11.4 on OTP 24.3.4.6 and Elixir 1.20.4 on OTP 29.0.6.
 
-`MIX_ENV=prod mix release --env=prod`
+# Building the release
 
-# Using with intellij-elixir tests
-
-[intellij-elixir](https://github.com/KronicDeth/intellij-elixir)'s
-`org.elixir.parsing_definition` tests use `IntellijElixir.Quoter` `GenServer`
-to verify that intellij-elixir's parsed and quoted form match's Elixir's native
-quoted form from `Code.string_to_quoted`.  IntellijElixir must be running
-on node name `intellij_elixir` for intellij-elixir's tests to find it, so start
-IntellijElixir release like so
-
+```sh
+MIX_ENV=prod mix release
 ```
-_build/prod/rel/intellij_elixir/bin/intellij_elixir start
+
+This assembles the release, including ERTS, in `_build/prod/rel/quoter`.
+
+# Running the release
+
+```sh
+# Linux and macOS, in the background
+_build/prod/rel/quoter/bin/quoter daemon
+
+# Windows, in the foreground
+_build\prod\rel\quoter\bin\quoter.bat start
+```
+
+The node is named `quoter` and uses the cookie `intellij-elixir-quoter`, unless the `RELEASE_NODE`,
+`RELEASE_DISTRIBUTION` and `RELEASE_COOKIE` environment variables say otherwise. It registers
+`IntellijElixir.Quoter`:
+
+```elixir
+GenServer.call(IntellijElixir.Quoter, "1 + 2")
+#=> {:ok, {:+, [line: 1], [1, 2]}}
+```
+
+The reply is whatever `Code.string_to_quoted/1` returns, `{:ok, quoted}` or `{:error, reason}`, or
+`{:raise, kind, message}` if it raises, throws or exits, where `kind` is the exception module, `:throw` or `:exit`.
+
+# Using with intellij-elixir
+
+intellij-elixir's Gradle `test` task downloads, builds and starts the quoter itself, from the `quoterRepo` and
+`quoterRef` in its `gradle.properties`. Its parser tests then call `IntellijElixir.Quoter` on that node. See
+intellij-elixir's `CONTRIBUTING.md`.
+
+# Development
+
+`mise.toml` pins the development toolchain. CI runs these, and so can you:
+
+```sh
+mix format --check-formatted
+mix credo --strict
+mix dialyzer
+mix test
+MIX_ENV=prod mix release --overwrite && .github/scripts/smoke-test-release.sh
 ```

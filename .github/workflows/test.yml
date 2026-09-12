@@ -6,59 +6,69 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# A new push to a pull request supersedes its running checks; runs on main are left to finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The oldest and newest Elixir/OTP pairs intellij-elixir builds the quoter with (its .github/ci-versions.json).
+# Steps read them as env; the matrix cannot read env, so it uses the YAML anchors instead.
+env:
+  MIN_ELIXIR: &min-elixir '1.11.4'
+  MIN_OTP: &min-otp '24.3.4.6'
+  MAX_ELIXIR: &max-elixir '1.20.4'
+  MAX_OTP: &max-otp '29.0.6'
+
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - elixir: '1.13.4'
-            otp: '24.3.4.6'
-            os: ubuntu-22.04
-          - elixir: '1.13.4'
-            otp: '24.3.4.6'
-            os: windows-2022
-          - elixir: '1.19.5'
-            otp: '28.1'
-            os: ubuntu-22.04
-          - elixir: '1.19.5'
-            otp: '28.1'
-            os: windows-2022
+  # Formatting, Credo and Dialyzer results vary between Elixir versions, so they are checked once, on the
+  # newest. Credo does not run on Elixir < 1.13.
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Erlang & Elixir
-        uses: erlef/setup-beam@v1
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
-          otp-version: ${{ matrix.otp }}
-          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ env.MAX_OTP }}
+          elixir-version: ${{ env.MAX_ELIXIR }}
 
       - name: Restore deps cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             deps
             _build
-          key: mix-${{ runner.os }}-${{ matrix.elixir }}-otp-${{ matrix.otp }}-${{ hashFiles('mix.exs', 'mix.lock') }}
+          key: mix-${{ github.job }}-${{ runner.os }}-${{ env.MAX_ELIXIR }}-otp-${{ env.MAX_OTP }}-${{ hashFiles('mix.exs', 'mix.lock') }}
           restore-keys: |
-            mix-${{ runner.os }}-${{ matrix.elixir }}-otp-${{ matrix.otp }}-
+            mix-${{ github.job }}-${{ runner.os }}-${{ env.MAX_ELIXIR }}-otp-${{ env.MAX_OTP }}-
 
       - name: Restore PLT cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: priv/plts
-          key: plt-${{ runner.os }}-${{ matrix.elixir }}-otp-${{ matrix.otp }}-${{ hashFiles('mix.exs', 'mix.lock') }}
+          key: plt-${{ runner.os }}-${{ env.MAX_ELIXIR }}-otp-${{ env.MAX_OTP }}-${{ hashFiles('mix.exs', 'mix.lock') }}
           restore-keys: |
-            plt-${{ runner.os }}-${{ matrix.elixir }}-otp-${{ matrix.otp }}-
+            plt-${{ runner.os }}-${{ env.MAX_ELIXIR }}-otp-${{ env.MAX_OTP }}-
 
       - name: Install dependencies
         run: mix deps.get
 
+      - name: Check for unused dependencies
+        run: mix deps.unlock --check-unused
+
+      # --force here and below: a restored _build is up to date, so without it nothing recompiles and no
+      # warnings are emitted to fail on.
       - name: Compile (warnings as errors)
-        run: mix compile --warnings-as-errors
+        run: mix compile --warnings-as-errors --force
 
       - name: Check formatting
         run: mix format --check-formatted
@@ -69,39 +79,74 @@ jobs:
       - name: Dialyzer
         run: mix dialyzer
 
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest pair on Linux and the newest on every OS; intellij-elixir's CI covers the versions between.
+        include:
+          - elixir: *min-elixir
+            otp: *min-otp
+            os: ubuntu-24.04
+          - elixir: *max-elixir
+            otp: *max-otp
+            os: ubuntu-24.04
+          - elixir: *max-elixir
+            otp: *max-otp
+            os: windows-2022
+          - elixir: *max-elixir
+            otp: *max-otp
+            os: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Erlang & Elixir
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+
+      - name: Restore deps cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ github.job }}-${{ runner.os }}-${{ matrix.elixir }}-otp-${{ matrix.otp }}-${{ hashFiles('mix.exs', 'mix.lock') }}
+          restore-keys: |
+            mix-${{ github.job }}-${{ runner.os }}-${{ matrix.elixir }}-otp-${{ matrix.otp }}-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      # A compile step rather than `mix test --warnings-as-errors`, which Elixir 1.11 does not have.
+      - name: Compile tests (warnings as errors)
+        env:
+          MIX_ENV: test
+        run: mix compile --warnings-as-errors --force
+
       - name: Run tests
         run: mix test
 
+      # intellij-elixir builds the quoter under MIX_ENV=prod (DEFAULT_MIX_ENV in buildSrc/.../MixEnvironment.kt).
+      - name: Compile release (warnings as errors)
+        env:
+          MIX_ENV: prod
+        run: mix compile --warnings-as-errors --force
+
       - name: Build release
+        env:
+          MIX_ENV: prod
         run: mix release --overwrite
 
-      - name: Smoke test release (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          _build/dev/rel/intellij_elixir/bin/intellij_elixir daemon
-          for i in $(seq 1 20); do
-            pid=$(_build/dev/rel/intellij_elixir/bin/intellij_elixir pid 2>/dev/null) && break
-            sleep 0.5
-          done
-          if [ -z "$pid" ]; then echo "Quoter failed to start"; exit 1; fi
-          result=$(_build/dev/rel/intellij_elixir/bin/intellij_elixir rpc 'GenServer.call(IntellijElixir.Quoter, "1 + 2")')
-          _build/dev/rel/intellij_elixir/bin/intellij_elixir stop
-          echo "Quoter returned: $result"
-          echo "$result" | grep -q "{:ok"
-
-      - name: Smoke test release (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Start-Process -NoNewWindow -FilePath "_build/dev/rel/intellij_elixir/bin/intellij_elixir.bat" -ArgumentList "start"
-          $ready = $false
-          for ($i = 0; $i -lt 20; $i++) {
-            $pid = & _build/dev/rel/intellij_elixir/bin/intellij_elixir.bat pid 2>$null
-            if ($LASTEXITCODE -eq 0 -and $pid) { $ready = $true; break }
-            Start-Sleep -Milliseconds 500
-          }
-          if (-not $ready) { Write-Error "Quoter failed to start"; exit 1 }
-          $result = & _build/dev/rel/intellij_elixir/bin/intellij_elixir.bat rpc "GenServer.call(IntellijElixir.Quoter, ""1 + 2"")"
-          & _build/dev/rel/intellij_elixir/bin/intellij_elixir.bat stop
-          Write-Host "Quoter returned: $result"
-          if ($result -notmatch "\{:ok") { exit 1 }
+      - name: Smoke test release
+        shell: bash
+        env:
+          MIX_ENV: prod
+        run: .github/scripts/smoke-test-release.sh

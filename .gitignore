@@ -1,6 +1,24 @@
-# IDEA ignores - see https://intellij-support.jetbrains.com/entries/23393067
-/.idea/workspace.xml
-/.idea/markdown*
+# JetBrains, after https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
+# User-specific stuff
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/usage.statistics.xml
+.idea/**/dictionaries
+.idea/**/shelf
+
+# Regenerated from mix.exs by intellij-elixir's import, like the template's Gradle/Maven auto-import entries
+.idea/**/libraries
+.idea/modules.xml
+*.iml
+
+# Names a per-machine Elixir SDK
+.idea/misc.xml
+# IDE-default SQL injection rules for Java libraries, nothing this project uses
+.idea/IntelliLang.xml
+
+# IntelliJ
+out/
+*.iws
 # mix new ignores
 /_build
 /deps

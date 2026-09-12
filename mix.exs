@@ -3,15 +3,14 @@ defmodule IntellijElixir.Mixfile do
 
   def project do
     [
-      app: :intellij_elixir,
+      app: :quoter,
       deps: deps(),
       description: description(),
       dialyzer: dialyzer(),
-      docs: docs(),
       elixir: "~> 1.11",
       package: package(),
       releases: releases(),
-      version: "2.1.0"
+      version: "3.0.0"
     ]
   end
 
@@ -24,10 +23,10 @@ defmodule IntellijElixir.Mixfile do
 
   defp releases do
     [
-      intellij_elixir: [
+      quoter: [
         include_erts: true,
         applications: [runtime_tools: :permanent],
-        cookie: "intellij_elixir"
+        cookie: "intellij-elixir-quoter"
       ]
     ]
   end
@@ -49,8 +48,9 @@ defmodule IntellijElixir.Mixfile do
   # Type `mix help deps` for more examples and options
   defp deps do
     [
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      # Dev only: neither compiles on the oldest Elixir the quoter supports, where CI still runs the tests.
+      {:credo, "~> 1.7", only: :dev, runtime: false},
+      {:dialyxir, "~> 1.4", only: :dev, runtime: false}
     ]
   end
 
@@ -59,12 +59,6 @@ defmodule IntellijElixir.Mixfile do
     IntellijElixir allows intellij-elixir to ask Elixir for the native quoted form of code to check that
     intellij-elixir's quoted form matches.
     """
-  end
-
-  defp docs do
-    [
-      extras: extras()
-    ]
   end
 
   defp extras do
@@ -81,8 +75,7 @@ defmodule IntellijElixir.Mixfile do
       file: ["lib", "mix.exs" | extras()],
       licenses: ["Apache 2.0"],
       links: %{
-        "Docs" => "https://hexdocs.pm/intellij_elixir",
-        "Github" => "https://github.com/KronicDeth/intellij_elixir"
+        "Github" => "https://github.com/intellij-elixir/intellij-elixir-quoter"
       },
       maintainers: [
         "Luke Imhoff"

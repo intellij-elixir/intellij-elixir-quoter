@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.0.0
+
+### Enhancements
+* [#11](https://github.com/intellij-elixir/intellij-elixir-quoter/pull/11) - [@sh41](https://github.com/sh41)
+  * Build the release with `mix release` instead of Distillery.
+  * Replace deprecated APIs such as `Supervisor.Spec` and `Mix.Config`.
+  * Run CI on GitHub Actions.
+* [#12](https://github.com/intellij-elixir/intellij-elixir-quoter/pull/12) - [@sh41](https://github.com/sh41)
+  * CI tests Elixir 1.11.4 (OTP 24.3.4.6) and 1.20.4 (OTP 29.0.6), the newest on Linux, Windows and macOS, and smoke tests the `prod` release on each.
+
+### Bug Fixes
+* [#11](https://github.com/intellij-elixir/intellij-elixir-quoter/pull/11) - `IntellijElixir.Quoter` replies `{:raise, kind, message}` when `Code.string_to_quoted/1` raises, throws or exits, instead of crashing. - [@sh41](https://github.com/sh41)
+
+### Incompatible Changes
+* [#11](https://github.com/intellij-elixir/intellij-elixir-quoter/pull/11) - [@sh41](https://github.com/sh41)
+  * Requires Elixir >= 1.11.
+  * Build with `MIX_ENV=prod mix release`; Distillery's `--env` is gone.
+  * `start` runs the release in the foreground; use `daemon` for the background.
+  * The node defaults to a short name instead of `intellij_elixir@127.0.0.1`.
+* [#12](https://github.com/intellij-elixir/intellij-elixir-quoter/pull/12) - Rename the application and release from `intellij_elixir` to `quoter`: the launcher is `_build/prod/rel/quoter/bin/quoter`, the node defaults to `quoter` and the cookie is `intellij-elixir-quoter`. - [@sh41](https://github.com/sh41)
+
 ## v2.1.0
 
 ### Enhancements
