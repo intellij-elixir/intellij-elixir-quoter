@@ -41,6 +41,37 @@ GenServer.call(IntellijElixir.Quoter, "1 + 2")
 The reply is whatever `Code.string_to_quoted/1` returns, `{:ok, quoted}` or `{:error, reason}`, or
 `{:raise, kind, message}` if it raises, throws or exits, where `kind` is the exception module, `:throw` or `:exit`.
 
+## Diagnostics
+
+Elixir writes the warnings it emits while quoting to the daemon's console, where a client cannot tell which
+request produced them. Ask with `{:quote, code}` instead to get them back with the reply:
+
+```elixir
+GenServer.call(IntellijElixir.Quoter, {:quote, "x = ? "})
+#=> {:ok, {:=, [line: 1], [{:x, [line: 1], nil}, 32]},
+#=>  [{:warning, 1, 5, "found ? followed by code point 0x20 (space), please use ?\\s instead"}]}
+```
+
+Each diagnostic is `{severity, line, column, message}`, in the order Elixir emitted them, with duplicates kept.
+`severity` is `:warning` or `:error`. `column` is `nil` on Elixir 1.11 and 1.12, which report no column.
+
+A source Elixir rejects reports no diagnostics on every supported release, even when the tokenizer warned on an
+earlier line, so `{:error, reason, []}` and `{:raise, kind, message, []}` are the only shapes those take.
+
+Message wording is not stable across releases — some rules were reworded mid-range, and some do not exist in
+older ones — so compare against the release under test rather than a recorded fixture.
+
+## Capabilities
+
+```elixir
+IntellijElixir.Quoter.capabilities()
+#=> %{protocol: 2, elixir: "1.20.4", otp: "29", mechanism: :with_diagnostics, warning_capture: true}
+```
+
+`warning_capture: false` means diagnostics cannot be captured on this build: replies are still well formed, but
+every diagnostics list is empty, which is indistinguishable from source that emitted nothing. A client that
+compares diagnostics should fail rather than trust them.
+
 # Using with intellij-elixir
 
 intellij-elixir's Gradle `test` task downloads, builds and starts the quoter itself, from the `quoterRepo` and

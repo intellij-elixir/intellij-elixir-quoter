@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.1.0
+
+### Enhancements
+* [#13](https://github.com/intellij-elixir/intellij-elixir-quoter/pull/13) - [@sh41](https://github.com/sh41)
+  * `IntellijElixir.Quoter` answers a new `{:quote, code}` request with the diagnostics Elixir emitted while quoting that source: `{:ok, quoted, diagnostics}`, `{:error, reason, diagnostics}` or `{:raise, kind, message, diagnostics}`, where each diagnostic is `{severity, line, column, message}`. The bare binary request is unchanged, so an existing client keeps its reply shape.
+  * `IntellijElixir.Quoter.capabilities/0` reports the protocol, the Elixir and OTP running the release, and whether capturing diagnostics works on it.
+
+### Bug Fixes
+* [#13](https://github.com/intellij-elixir/intellij-elixir-quoter/pull/13) - [@sh41](https://github.com/sh41)
+  * Warnings emitted while quoting are no longer lost. They were written to the daemon's console, which the client cannot attribute to a request.
+  * The release smoke test starts the release the way intellij-elixir does, as a long name on loopback, under a node name and cookie of its own. It took the release's defaults, so it exercised something the plugin never does, and a leftover node holding the fixed name stopped it starting at all.
+
 ## v3.0.0
 
 ### Enhancements
