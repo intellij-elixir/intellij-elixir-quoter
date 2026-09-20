@@ -1,5 +1,12 @@
 # Upgrading
 
+## v3.1.0
+
+No changes are required: `GenServer.call(IntellijElixir.Quoter, code)` replies exactly as it did in v3.0.0.
+
+To receive the diagnostics Elixir emitted while quoting, ask with `{:quote, code}` instead of `code`. Each reply
+then carries a fourth piece of information, a list of `{severity, line, column, message}`. See `README.md`.
+
 ## v3.0.0
 
 If upgrading from v2.1.0 or earlier, the release is built by `mix release` instead of Distillery, and the application and release are named `quoter` instead of `intellij_elixir`.

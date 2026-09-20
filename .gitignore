@@ -28,3 +28,6 @@ erl_crash.dump
 /priv/plts
 
 mise.*.toml
+
+# Written by .github/scripts/smoke-test-release.sh on Windows
+/release.log
