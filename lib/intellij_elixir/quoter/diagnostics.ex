@@ -1,6 +1,6 @@
 defmodule IntellijElixir.Quoter.Diagnostics do
   @moduledoc """
-  Captures the diagnostics `Code.string_to_quoted/1` emits, per call.
+  Captures the diagnostics `Code.string_to_quoted/2`, and from 1.15 `Code.compile_string/2`, emit, per call.
 
   Each release family reports them through a different hook:
 
@@ -36,6 +36,12 @@ defmodule IntellijElixir.Quoter.Diagnostics do
   @spec mechanism :: mechanism
   def mechanism, do: @mechanism
 
+  @doc """
+  Whether `capture_compile/1` captures anything on this release.
+  """
+  @spec compile_capture? :: boolean
+  def compile_capture?, do: @mechanism == :with_diagnostics
+
   if @mechanism == :with_diagnostics do
     @doc """
     Runs `fun`, returning its result and the diagnostics it emitted, in emission order.
@@ -50,6 +56,14 @@ defmodule IntellijElixir.Quoter.Diagnostics do
 
       {result, Enum.map(diagnostics, &entry/1)}
     end
+
+    @doc """
+    Runs `fun`, a compile, returning its result and the diagnostics it emitted, in emission order.
+
+    Unlike quoting, compiling also reports what the checker finds after the modules are defined.
+    """
+    @spec capture_compile((-> result)) :: {result, [t]} when result: var
+    def capture_compile(fun), do: capture(fun)
 
     defp entry(%{severity: severity, position: position, message: message}) do
       {line, column} = line_and_column(position)
@@ -79,6 +93,16 @@ defmodule IntellijElixir.Quoter.Diagnostics do
       # time it returns and the drain needs no timeout.
       {result, drain([])}
     end
+
+    @doc """
+    Runs `fun`, a compile, returning its result and no diagnostics.
+
+    This release's hook is the parallel compiler's own protocol. Setting it for a compile makes every module wait
+    for the compiler to acknowledge it, makes missing modules wait for the compiler to find them, and, from 1.13,
+    skips the checker, so the code would not compile as it does outside the quoter.
+    """
+    @spec capture_compile((-> result)) :: {result, [t]} when result: var
+    def capture_compile(fun) when is_function(fun, 0), do: {fun.(), []}
 
     if @mechanism == :compiler_info do
       defp hook, do: {self(), make_ref()}

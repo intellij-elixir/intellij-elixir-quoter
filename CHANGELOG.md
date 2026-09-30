@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.2.0
+
+### Enhancements
+* [#14](https://github.com/intellij-elixir/intellij-elixir-quoter/issues/14) - [@sh41](https://github.com/sh41)
+  * `IntellijElixir.Quoter` answers `{:quote, code, opts}`, which quotes with the parser options `columns:` and `token_metadata:` and replies as `{:quote, code}` does. Any other option is rejected with `{:error, {:invalid_options, rejected}, []}`.
+  * `IntellijElixir.Quoter` answers `{:compile, code, opts}`, which compiles `code` in a process of its own and replies `{status, messages, events, diagnostics}`: the terms the compiled code reported with `IntellijElixir.Quoter.Probe.send/2`, the `{event, env}` pairs a compiler tracer saw, and the diagnostics, each in arrival order. `status` is `:ok`, `{:raise, kind, message}`, `:timeout` after `timeout:` milliseconds (5000 unless given), or `{:error, {:invalid_options, rejected}}`. What arrived before a failure is kept, compiles running at once never see each other's messages or events, and every module the compile introduced is unloaded before the reply, while modules that were already loaded are left alone. Diagnostics are captured on Elixir 1.15 and later; before 1.15 the list is always empty, because capturing them would change how the code compiles.
+  * `IntellijElixir.Quoter.capabilities/0` reports `protocol: 3`, and `compile_diagnostics:`, whether compiles report diagnostics on this release.
+
 ## v3.1.0
 
 ### Enhancements

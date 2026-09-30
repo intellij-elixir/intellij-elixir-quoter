@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Starts the assembled release the way the IntelliJ Elixir build does (buildSrc/.../*QuoterPlatform.kt),
-# asks the running Quoter to quote "1 + 2" and checks the answer.
+# asks the running Quoter to quote "1 + 2" and to compile a probe, and checks the answers.
 set -euo pipefail
 
 # prod unless MIX_ENV says otherwise, as intellij-elixir builds it (DEFAULT_MIX_ENV in buildSrc/.../MixEnvironment.kt).
@@ -72,3 +72,13 @@ echo "Quoter reported a diagnostic: $diagnosed"
 captures=$(answer 'IO.puts(IntellijElixir.Quoter.capabilities().warning_capture)') || true
 echo "Quoter reported warning capture: $captures"
 [[ $captures == "true" ]]
+
+columns=$(answer 'IO.inspect(GenServer.call(IntellijElixir.Quoter, {:quote, ~s(1 + 2), [columns: true]}))') || true
+echo "Quoter returned with columns: $columns"
+[[ $columns == "{:ok, {:+, [line: 1, column: 3], [1, 2]}, []}" ]]
+
+# Sigils do not nest their delimiters, so the probe call is inside ~s[]. `_events` stays a pattern because the
+# events differ between releases.
+probed=$(answer 'IO.puts(match?({:ok, [:probed], _events, _diagnostics}, GenServer.call(IntellijElixir.Quoter, {:compile, ~s[IntellijElixir.Quoter.Probe.send(__ENV__, :probed)], []})))') || true
+echo "Quoter compiled a probe: $probed"
+[[ $probed == "true" ]]
