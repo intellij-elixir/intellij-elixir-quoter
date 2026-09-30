@@ -1,5 +1,14 @@
 # Upgrading
 
+## v3.2.0
+
+No changes are required: every request v3.1.0 answers is answered exactly as before, and `capabilities/0` only
+gains the `compile_diagnostics` key and reports `protocol: 3`.
+
+To quote with parser options, ask with `{:quote, code, opts}`. To compile code and collect what its probes and the
+compiler's tracer report, ask with `{:compile, code, opts}`. A client can check for `protocol: 3` or later before
+using either. See `README.md`.
+
 ## v3.1.0
 
 No changes are required: `GenServer.call(IntellijElixir.Quoter, code)` replies exactly as it did in v3.0.0.

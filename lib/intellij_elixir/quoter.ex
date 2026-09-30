@@ -1,8 +1,8 @@
 defmodule IntellijElixir.Quoter do
   @moduledoc """
-  `Code.string_to_quoted/1` server
+  `Code.string_to_quoted/2` and `Code.compile_string/2` server
 
-  Two request shapes are answered, so a client written against either can be upgraded on its own
+  Each request shape is still answered, so a client written against any of them can be upgraded on its own
   schedule:
 
       GenServer.call(IntellijElixir.Quoter, "1 + 2")
@@ -11,11 +11,19 @@ defmodule IntellijElixir.Quoter do
       GenServer.call(IntellijElixir.Quoter, {:quote, "1 + 2"})
       #=> {:ok, {:+, [line: 1], [1, 2]}, []}
 
-  The second adds the diagnostics Elixir emitted while quoting that source. See `capabilities/0`.
+      GenServer.call(IntellijElixir.Quoter, {:quote, "1 + 2", columns: true})
+      #=> {:ok, {:+, [line: 1, column: 3], [1, 2]}, []}
+
+      GenServer.call(IntellijElixir.Quoter, {:compile, "defmodule M, do: nil", timeout: 1_000})
+      #=> {:ok, [], [{:start, %Macro.Env{}}, ...], []}
+
+  `{:quote, code}` adds the diagnostics Elixir emitted while quoting that source, and `{:quote, code, opts}`
+  quotes with the parser options `columns:` and `token_metadata:`. `{:compile, code, opts}` is answered by
+  `IntellijElixir.Quoter.Compile`. See `capabilities/0`.
   """
   use GenServer
 
-  alias IntellijElixir.Quoter.Diagnostics
+  alias IntellijElixir.Quoter.{Compile, Diagnostics}
 
   # Types
 
@@ -27,23 +35,30 @@ defmodule IntellijElixir.Quoter do
   @type quoted :: {:ok, Macro.t()} | {:error, {line, error, token}} | raised
   @type diagnosed ::
           {:ok, Macro.t(), [Diagnostics.t()]}
-          | {:error, {line, error, token}, [Diagnostics.t()]}
+          | {:error, {line, error, token} | {:invalid_options, term}, [Diagnostics.t()]}
           | {:raise, module | :throw | :exit, binary, [Diagnostics.t()]}
   @type capabilities :: %{
           protocol: pos_integer,
           elixir: String.t(),
           otp: String.t(),
           mechanism: Diagnostics.mechanism(),
-          warning_capture: boolean
+          warning_capture: boolean,
+          compile_diagnostics: boolean
         }
 
   # Bump whenever a reply shape changes, so a client can tell what it is talking to. The bare binary
-  # request is protocol 1; `{:quote, code}` and `:capabilities` are protocol 2.
-  @protocol 2
+  # request is protocol 1; `{:quote, code}` and `:capabilities` are protocol 2; `{:quote, code, opts}` and
+  # `{:compile, code, opts}` are protocol 3.
+  @protocol 3
+
+  # The parser options a client may set, each to a boolean.
+  @quote_options [:columns, :token_metadata]
 
   # Warns on every supported release, so a boot that captures nothing proves the hook is broken
   # rather than that the source was clean.
   @self_check_source "x = ? "
+
+  @compile_supervisor IntellijElixir.Quoter.CompileSupervisor
 
   @doc """
   Starts the Quoter GenServer.
@@ -61,15 +76,40 @@ defmodule IntellijElixir.Quoter do
   end
 
   @doc """
-  What this build answers: its protocol, the Elixir and OTP running it, and whether capturing
-  diagnostics still works here.
+  What this build answers: its protocol, the Elixir and OTP running it, whether capturing diagnostics
+  still works here, and whether compiles report diagnostics.
 
   `warning_capture: false` means this release's hook no longer captures. Replies stay well-formed,
   with an empty diagnostics list for every source, so a client that compares diagnostics should fail
   rather than trust them.
+
+  `compile_diagnostics: false` means every `{:compile, code, opts}` reply has an empty diagnostics list, as on
+  Elixir before 1.15.
   """
   @spec capabilities :: capabilities
   def capabilities, do: GenServer.call(__MODULE__, :capabilities)
+
+  @doc false
+  # Older releases reject some constructs by raising rather than by returning `{:error, _}`, and compiled code
+  # may raise, throw or exit with anything. Answering with a term keeps the server alive, so the caller sees the
+  # failure and later calls are unaffected.
+  @spec answering_raises((-> result)) :: result | raised when result: var
+  def answering_raises(fun) do
+    fun.()
+  rescue
+    exception -> {:raise, exception.__struct__, Exception.message(exception)}
+  catch
+    :throw, thrown -> {:raise, :throw, inspect(thrown)}
+    :exit, reason -> {:raise, :exit, inspect(reason)}
+  end
+
+  @doc false
+  # The entries of `opts` that `valid?` rejects, or all of `opts` when it is not a keyword list, so checking what
+  # a client sent never raises in the server.
+  @spec invalid_options(term, (term -> boolean)) :: term
+  def invalid_options(opts, valid?) do
+    if Keyword.keyword?(opts), do: Enum.reject(opts, valid?), else: opts
+  end
 
   @impl true
   @spec init([]) :: {:ok, t}
@@ -78,23 +118,68 @@ defmodule IntellijElixir.Quoter do
   end
 
   @impl true
-  @spec handle_call(String.t() | {:quote, String.t()} | :capabilities, GenServer.from(), t) ::
-          {:reply, quoted | diagnosed | capabilities, t}
+  @spec handle_call(
+          String.t()
+          | {:quote, String.t()}
+          | {:quote, String.t(), keyword}
+          | {:compile, String.t(), keyword}
+          | :capabilities,
+          GenServer.from(),
+          t
+        ) :: {:reply, quoted | diagnosed | Compile.t() | capabilities, t} | {:noreply, t}
   def handle_call(code, _from, state) when is_binary(code) do
-    {:reply, quote_code(code), state}
+    {:reply, quote_code(code, []), state}
   end
 
   def handle_call({:quote, code}, _from, state) when is_binary(code) do
-    {:reply, quote_code_with_diagnostics(code), state}
+    {:reply, quote_code_with_diagnostics(code, []), state}
+  end
+
+  def handle_call({:quote, code, opts}, _from, state) when is_binary(code) do
+    reply =
+      case invalid_options(opts, &valid_quote_option?/1) do
+        [] -> quote_code_with_diagnostics(code, opts)
+        invalid -> {:error, {:invalid_options, invalid}, []}
+      end
+
+    {:reply, reply, state}
+  end
+
+  # Answered from a process of its own, so a long compile holds up neither quoting nor other compiles.
+  def handle_call({:compile, code, opts}, from, state) when is_binary(code) do
+    case Compile.timeout(opts) do
+      {:ok, timeout} ->
+        {:ok, _collector} =
+          Task.Supervisor.start_child(@compile_supervisor, fn ->
+            GenServer.reply(from, compile(code, timeout))
+          end)
+
+        {:noreply, state}
+
+      {:error, reply} ->
+        {:reply, reply, state}
+    end
   end
 
   def handle_call(:capabilities, _from, state) do
     {:reply, capabilities(state), state}
   end
 
-  @spec quote_code_with_diagnostics(String.t()) :: diagnosed
-  defp quote_code_with_diagnostics(code) do
-    {result, diagnostics} = Diagnostics.capture(fn -> quote_code(code) end)
+  defp valid_quote_option?({key, value}), do: key in @quote_options and is_boolean(value)
+  defp valid_quote_option?(_option), do: false
+
+  # The caller is only answered by this process, so a failure in collecting must still reply.
+  @spec compile(String.t(), pos_integer) :: Compile.t()
+  defp compile(code, timeout) do
+    case answering_raises(fn -> Compile.run(code, timeout) end) do
+      {:raise, _kind, _message} = raised -> {raised, [], [], []}
+      compiled -> compiled
+    end
+  end
+
+  @spec quote_code_with_diagnostics(String.t(), keyword) :: diagnosed
+  defp quote_code_with_diagnostics(code, opts) do
+    {result, diagnostics} = Diagnostics.capture(fn -> quote_code(code, opts) end)
 
     case result do
       {:ok, quoted} -> {:ok, quoted, diagnostics}
@@ -103,16 +188,9 @@ defmodule IntellijElixir.Quoter do
     end
   end
 
-  # Older releases reject some constructs by raising rather than by returning `{:error, _}`. Answering
-  # with a term keeps the server alive, so the caller sees the rejection and later calls are unaffected.
-  @spec quote_code(String.t()) :: quoted
-  defp quote_code(code) do
-    Code.string_to_quoted(code)
-  rescue
-    exception -> {:raise, exception.__struct__, Exception.message(exception)}
-  catch
-    :throw, thrown -> {:raise, :throw, inspect(thrown)}
-    :exit, reason -> {:raise, :exit, inspect(reason)}
+  @spec quote_code(String.t(), keyword) :: quoted
+  defp quote_code(code, opts) do
+    answering_raises(fn -> Code.string_to_quoted(code, opts) end)
   end
 
   @spec capabilities(t) :: capabilities
@@ -122,13 +200,14 @@ defmodule IntellijElixir.Quoter do
       elixir: System.version(),
       otp: List.to_string(:erlang.system_info(:otp_release)),
       mechanism: Diagnostics.mechanism(),
-      warning_capture: warning_capture
+      warning_capture: warning_capture,
+      compile_diagnostics: Diagnostics.compile_capture?()
     }
   end
 
   @spec warning_capture? :: boolean
   defp warning_capture? do
-    {_result, diagnostics} = Diagnostics.capture(fn -> quote_code(@self_check_source) end)
+    {_result, diagnostics} = Diagnostics.capture(fn -> quote_code(@self_check_source, []) end)
 
     diagnostics != []
   end
