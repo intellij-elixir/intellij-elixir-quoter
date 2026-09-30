@@ -1,6 +1,7 @@
 defmodule IntellijElixir do
   @moduledoc """
-  Exposed `GenServer`, `IntellijElixir.Quoter` that can quote code using `Code.string_to_quoted/1`
+  Exposed `GenServer`, `IntellijElixir.Quoter` that can quote code using `Code.string_to_quoted/2`, and compile
+  it using `Code.compile_string/2`
   """
 
   use Application

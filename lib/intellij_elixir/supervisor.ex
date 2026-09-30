@@ -1,6 +1,6 @@
 defmodule IntellijElixir.Supervisor do
   @moduledoc """
-  Supervises `IntellijElixir.Quoter`
+  Supervises `IntellijElixir.Quoter` and the compiles it starts
   """
 
   use Supervisor
@@ -14,7 +14,10 @@ defmodule IntellijElixir.Supervisor do
 
   @impl true
   def init(:ok) do
+    # The quoter starts compiles under the task supervisor, and each compile collects through the registry.
     children = [
+      {Registry, keys: :unique, name: IntellijElixir.Quoter.Compiles},
+      {Task.Supervisor, name: IntellijElixir.Quoter.CompileSupervisor},
       {IntellijElixir.Quoter, name: @quoter_module}
     ]
 

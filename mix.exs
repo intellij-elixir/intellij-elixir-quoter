@@ -10,7 +10,7 @@ defmodule IntellijElixir.Mixfile do
       elixir: "~> 1.11",
       package: package(),
       releases: releases(),
-      version: "3.1.0"
+      version: "3.2.0"
     ]
   end
 
@@ -57,7 +57,7 @@ defmodule IntellijElixir.Mixfile do
   defp description do
     """
     IntellijElixir allows intellij-elixir to ask Elixir for the native quoted form of code to check that
-    intellij-elixir's quoted form matches.
+    intellij-elixir's quoted form matches, and to compile code and report what the compiler traced.
     """
   end
 
