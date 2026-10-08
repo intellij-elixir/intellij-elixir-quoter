@@ -202,6 +202,35 @@ defmodule IntellijElixir.QuoterTest do
     end
   end
 
+  describe "concurrent requests" do
+    test "quotes overlap rather than queue behind a slow one" do
+      slow = String.duplicate("1 + ", 200_000) <> "1"
+
+      slow_task = Task.async(fn -> GenServer.call(IntellijElixir.Quoter, slow, 30_000) end)
+      Process.sleep(10)
+
+      {micros, {:ok, {:+, _, [1, 2]}}} =
+        :timer.tc(fn -> GenServer.call(IntellijElixir.Quoter, "1 + 2") end)
+
+      assert micros < 1_000_000
+      assert {:ok, _} = Task.await(slow_task, 30_000)
+    end
+
+    test "many quotes at once each get their own reply" do
+      replies =
+        1..200
+        |> Task.async_stream(
+          fn n -> GenServer.call(IntellijElixir.Quoter, {:quote, "#{n} + 1"}) end,
+          max_concurrency: 50
+        )
+        |> Enum.map(fn {:ok, reply} -> reply end)
+
+      for {reply, n} <- Enum.with_index(replies, 1) do
+        assert {:ok, {:+, _, [^n, 1]}, []} = reply
+      end
+    end
+  end
+
   describe "the {:compile, code, opts} request" do
     test "replies with the probes' messages and the tracer's events, in arrival order" do
       ns = namespace()

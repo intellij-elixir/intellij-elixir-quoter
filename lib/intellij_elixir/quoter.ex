@@ -127,46 +127,47 @@ defmodule IntellijElixir.Quoter do
           GenServer.from(),
           t
         ) :: {:reply, quoted | diagnosed | Compile.t() | capabilities, t} | {:noreply, t}
-  def handle_call(code, _from, state) when is_binary(code) do
-    {quoted, _diagnostics} = Diagnostics.capture(fn -> quote_code(code, []) end)
-
-    {:reply, quoted, state}
+  def handle_call(code, from, state) when is_binary(code) do
+    answer_apart(from, state, fn ->
+      {quoted, _diagnostics} = Diagnostics.capture(fn -> quote_code(code, []) end)
+      quoted
+    end)
   end
 
-  def handle_call({:quote, code}, _from, state) when is_binary(code) do
-    {:reply, quote_code_with_diagnostics(code, []), state}
+  def handle_call({:quote, code}, from, state) when is_binary(code) do
+    answer_apart(from, state, fn -> quote_code_with_diagnostics(code, []) end)
   end
 
-  def handle_call({:quote, code, opts}, _from, state) when is_binary(code) do
-    reply =
-      case invalid_options(opts, &valid_quote_option?/1) do
-        [] -> quote_code_with_diagnostics(code, opts)
-        invalid -> {:error, {:invalid_options, invalid}, []}
-      end
-
-    {:reply, reply, state}
+  def handle_call({:quote, code, opts}, from, state) when is_binary(code) do
+    case invalid_options(opts, &valid_quote_option?/1) do
+      [] -> answer_apart(from, state, fn -> quote_code_with_diagnostics(code, opts) end)
+      invalid -> {:reply, {:error, {:invalid_options, invalid}, []}, state}
+    end
   end
 
   # Answered from a process of its own, so a long compile holds up neither quoting nor other compiles.
   def handle_call({:compile, code, opts}, from, state) when is_binary(code) do
     case Compile.timeout(opts) do
-      {:ok, timeout} ->
-        :ok = Diagnostics.prepare_compile()
-
-        {:ok, _collector} =
-          Task.Supervisor.start_child(@compile_supervisor, fn ->
-            GenServer.reply(from, compile(code, timeout))
-          end)
-
-        {:noreply, state}
-
-      {:error, reply} ->
-        {:reply, reply, state}
+      {:ok, timeout} -> answer_apart(from, state, fn -> compile(code, timeout) end)
+      {:error, reply} -> {:reply, reply, state}
     end
   end
 
   def handle_call(:capabilities, _from, state) do
     {:reply, capabilities(state), state}
+  end
+
+  # Quotes and compiles run in processes of their own, so requests overlap. The node is prepared here, in the one
+  # process that does it, because before 1.15 that registers `:standard_error` and two registrations would race.
+  # `fun` raising is answered by its own rescue; a failure that still escapes leaves the caller to its call timeout.
+  @spec answer_apart(GenServer.from(), t, (-> term)) :: {:noreply, t}
+  defp answer_apart(from, state, fun) do
+    :ok = Diagnostics.prepare_compile()
+
+    {:ok, _child} =
+      Task.Supervisor.start_child(@compile_supervisor, fn -> GenServer.reply(from, fun.()) end)
+
+    {:noreply, state}
   end
 
   defp valid_quote_option?({key, value}), do: key in @quote_options and is_boolean(value)
