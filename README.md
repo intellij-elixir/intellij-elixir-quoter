@@ -44,8 +44,9 @@ The reply is whatever `Code.string_to_quoted/1` returns, `{:ok, quoted}` or `{:e
 
 ## Diagnostics
 
-Elixir writes the warnings it emits while quoting to the daemon's console, where a client cannot tell which
-request produced them. Ask with `{:quote, code}` instead to get them back with the reply:
+Elixir writes the warnings it emits while quoting to a console, where a client cannot tell which request produced
+them. The quoter drops what Elixir prints, so a daemon whose console has stopped draining is not held up by a quote
+that warns. Ask with `{:quote, code}` instead to get the warnings back with the reply:
 
 ```elixir
 GenServer.call(IntellijElixir.Quoter, {:quote, "x = ? "})
@@ -98,7 +99,8 @@ before a compile that times out is answered.
   grows with the code compiled.
 * `diagnostics` have the same shape as for quoting. They are captured on Elixir 1.15 and later only: before 1.15 the
   only hook is the parallel compiler's own protocol, which would change how the code compiles, so the list is
-  always empty there. It is also empty on a timeout.
+  always empty there. It is also empty on a timeout. What the compile prints is discarded on those releases, so a
+  console that has stopped draining cannot hold it up until its timeout.
 
 Whatever arrived before a raise or a timeout is kept, and compiles running at once never see each other's messages or
 events. Every module the compile introduced is unloaded before the reply. A module that was already loaded when the

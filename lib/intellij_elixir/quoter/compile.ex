@@ -18,6 +18,9 @@ defmodule IntellijElixir.Quoter.Compile do
       in arrival order;
     * `diagnostics` are captured on Elixir 1.15 and later, and always empty before it, where capturing them
       would change how the code compiles. They are empty on a timeout too.
+
+  What the compile prints is discarded before 1.15 (see `IntellijElixir.Quoter.Discard`), so a console that has
+  stopped draining cannot hold it up until its timeout.
   """
 
   alias IntellijElixir.Quoter

@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.2.1
+
+### Bug Fixes
+* [#16](https://github.com/intellij-elixir/intellij-elixir-quoter/issues/16) - [@sh41](https://github.com/sh41)
+  * Quoting no longer waits for the console to drain. Every warning Elixir prints is a synchronous write to `:standard_error`, which under `run_erl` is a pty; when it stopped draining, a quote that warned held the quoter, and every request behind it, until it drained again. What Elixir prints while quoting is now dropped. The reply of `{:quote, code}` and `{:quote, code, opts}` still carries the warnings.
+  * On Elixir 1.11 to 1.14, a compile no longer waits for the console either. It waited until its `timeout:` and answered `:timeout`. What it prints is dropped, and its diagnostics are still always empty there.
+
 ## v3.2.0
 
 ### Enhancements
