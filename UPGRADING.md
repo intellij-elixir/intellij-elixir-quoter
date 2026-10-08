@@ -1,5 +1,12 @@
 # Upgrading
 
+## v3.2.1
+
+No changes are required: every request is answered exactly as before. Warnings printed while quoting, and while
+compiling on Elixir 1.11 to 1.14, no longer reach the daemon's console, and a console that has stopped draining no
+longer holds the quoter up. On Elixir 1.11 to 1.14, a client that registers its own `:standard_error` has it replaced
+at the next request; it goes on receiving every write that is not the quoter's while it lives.
+
 ## v3.2.0
 
 No changes are required: every request v3.1.0 answers is answered exactly as before, and `capabilities/0` only

@@ -128,7 +128,9 @@ defmodule IntellijElixir.Quoter do
           t
         ) :: {:reply, quoted | diagnosed | Compile.t() | capabilities, t} | {:noreply, t}
   def handle_call(code, _from, state) when is_binary(code) do
-    {:reply, quote_code(code, []), state}
+    {quoted, _diagnostics} = Diagnostics.capture(fn -> quote_code(code, []) end)
+
+    {:reply, quoted, state}
   end
 
   def handle_call({:quote, code}, _from, state) when is_binary(code) do
@@ -149,6 +151,8 @@ defmodule IntellijElixir.Quoter do
   def handle_call({:compile, code, opts}, from, state) when is_binary(code) do
     case Compile.timeout(opts) do
       {:ok, timeout} ->
+        :ok = Diagnostics.prepare_compile()
+
         {:ok, _collector} =
           Task.Supervisor.start_child(@compile_supervisor, fn ->
             GenServer.reply(from, compile(code, timeout))

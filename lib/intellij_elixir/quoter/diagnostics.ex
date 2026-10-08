@@ -10,6 +10,10 @@ defmodule IntellijElixir.Quoter.Diagnostics do
 
   `IntellijElixir.Quoter` proves on boot that the hook still captures, so one that stopped working
   cannot be mistaken for code that emitted no diagnostics.
+
+  Before 1.15 Elixir also prints every warning it reports, and what it prints is dropped (see
+  `IntellijElixir.Quoter.Discard`), so a console that has stopped draining cannot hold the quoter. From 1.15 nothing is
+  printed while capturing.
   """
 
   @typedoc "Before 1.15 only warnings are reachable."
@@ -65,26 +69,35 @@ defmodule IntellijElixir.Quoter.Diagnostics do
     @spec capture_compile((-> result)) :: {result, [t]} when result: var
     def capture_compile(fun), do: capture(fun)
 
+    @doc """
+    Gets the node ready for a compile, in the process that starts it. Nothing is needed from 1.15.
+    """
+    @spec prepare_compile :: :ok
+    def prepare_compile, do: :ok
+
     defp entry(%{severity: severity, position: position, message: message}) do
       {line, column} = line_and_column(position)
 
       {severity, line, column, IO.iodata_to_binary(message)}
     end
   else
+    alias IntellijElixir.Quoter.Discard
+
     @key if @mechanism == :compiler_info, do: :elixir_compiler_info, else: :elixir_compiler_pid
 
     @doc """
     Runs `fun`, returning its result and the diagnostics it emitted, in emission order.
 
-    Duplicates are kept: the same warning on three lines is three entries.
+    Duplicates are kept: the same warning on three lines is three entries. What Elixir prints for them is dropped.
     """
     @spec capture((-> result)) :: {result, [t]} when result: var
     def capture(fun) when is_function(fun, 0) do
+      Discard.ensure()
       Process.put(@key, hook())
 
       result =
         try do
-          fun.()
+          Discard.as_member(fun)
         after
           Process.delete(@key)
         end
@@ -95,14 +108,29 @@ defmodule IntellijElixir.Quoter.Diagnostics do
     end
 
     @doc """
-    Runs `fun`, a compile, returning its result and no diagnostics.
+    Runs `fun`, a compile, returning its result and no diagnostics, and drops what the compile prints.
 
     This release's hook is the parallel compiler's own protocol. Setting it for a compile makes every module wait
     for the compiler to acknowledge it, makes missing modules wait for the compiler to find them, and, from 1.13,
-    skips the checker, so the code would not compile as it does outside the quoter.
+    skips the checker, so the code would not compile as it does outside the quoter. So the warnings are neither
+    captured nor printed: the calling process becomes a member of the discarding server for the rest of its life, as
+    does everything the compile spawns, and `prepare_compile/0` must have run first.
     """
     @spec capture_compile((-> result)) :: {result, [t]} when result: var
-    def capture_compile(fun) when is_function(fun, 0), do: {fun.(), []}
+    def capture_compile(fun) when is_function(fun, 0) do
+      Discard.join()
+      {fun.(), []}
+    end
+
+    @doc """
+    Gets the node ready for a compile, in the process that starts it: `:standard_error` is the discarding server
+    before the compile's process starts, so that process only ever joins it.
+    """
+    @spec prepare_compile :: :ok
+    def prepare_compile do
+      Discard.ensure()
+      :ok
+    end
 
     if @mechanism == :compiler_info do
       defp hook, do: {self(), make_ref()}

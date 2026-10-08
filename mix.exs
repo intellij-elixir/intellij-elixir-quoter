@@ -10,7 +10,7 @@ defmodule IntellijElixir.Mixfile do
       elixir: "~> 1.11",
       package: package(),
       releases: releases(),
-      version: "3.2.0"
+      version: "3.2.1"
     ]
   end
 
