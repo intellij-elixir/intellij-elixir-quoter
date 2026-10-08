@@ -57,6 +57,15 @@ defmodule IntellijElixir.QuoterTest do
       # A client written against protocol 1 must not start seeing a third element.
       assert {:ok, _quoted} = GenServer.call(IntellijElixir.Quoter, @code)
     end
+
+    test "answers a bare quote that warns while standard_error does not drain, and a compile after it" do
+      # The quoter answers a quote in its own process, so a warning written to a console that has stopped draining
+      # would suspend every later request with it.
+      with_standard_error(spawn(fn -> Process.sleep(:infinity) end), fn ->
+        assert {:ok, _quoted} = GenServer.call(IntellijElixir.Quoter, @warning_source, 2_000)
+        assert {:ok, [], _events, _diagnostics} = compile("1 + 2", timeout: 2_000)
+      end)
+    end
   end
 
   describe "the {:quote, code} request" do
@@ -112,6 +121,16 @@ defmodule IntellijElixir.QuoterTest do
 
       assert Process.whereis(IntellijElixir.Quoter) == pid
       assert {:ok, _quoted, []} = GenServer.call(IntellijElixir.Quoter, {:quote, @code})
+    end
+
+    test "answers a quote that warns while standard_error does not drain, and a compile after it" do
+      # The reply still carries the warning: only what Elixir prints is dropped.
+      with_standard_error(spawn(fn -> Process.sleep(:infinity) end), fn ->
+        assert {:ok, _quoted, [_ | _]} =
+                 GenServer.call(IntellijElixir.Quoter, {:quote, @warning_source}, 2_000)
+
+        assert {:ok, [], _events, _diagnostics} = compile("1 + 2", timeout: 2_000)
+      end)
     end
   end
 
@@ -388,6 +407,39 @@ defmodule IntellijElixir.QuoterTest do
 
       assert :replaced == Preexisting.here?()
     end
+
+    test "answers a warning-heavy compile while standard_error does not drain" do
+      # Before 1.15 every warning is a synchronous write to standard_error, so a console that has stopped draining
+      # would hold the compile until its timeout.
+      with_standard_error(spawn(fn -> Process.sleep(:infinity) end), fn ->
+        assert {:ok, [], _events, _diagnostics} =
+                 compile(warning_heavy(namespace()), timeout: 2_000)
+      end)
+    end
+
+    test "drops a compile's output and passes other writes to standard_error on" do
+      with_standard_error(recorder(self()), fn ->
+        assert {:ok, [], _events, _diagnostics} =
+                 compile(warning_heavy(namespace()), timeout: 2_000)
+
+        IO.write(:stderr, "outside\n")
+        assert_receive {:written, "outside\n"}, 1_000
+
+        # A write the compile made would already have arrived: all end before the reply, on every release.
+        assert [] == written()
+      end)
+    end
+
+    test "restoring a replaced standard_error leaves the same device registered, and writable" do
+      assert {:ok, _, _, _} = compile("1 + 2")
+      registered = Process.whereis(:standard_error)
+
+      with_standard_error(recorder(self()), fn -> assert {:ok, _, _, _} = compile("1 + 2") end)
+
+      assert {:ok, _, _, _} = compile("1 + 2")
+      assert registered == Process.whereis(:standard_error)
+      assert :ok == IO.write(:stderr, "")
+    end
   end
 
   describe "IntellijElixir.Quoter.Probe.send/2" do
@@ -417,6 +469,57 @@ defmodule IntellijElixir.QuoterTest do
 
   defp compile(code, opts \\ []) do
     GenServer.call(IntellijElixir.Quoter, {:compile, code, opts}, 30_000)
+  end
+
+  # Registers `device` as standard_error for `fun`, then puts back what was registered and stops `device`.
+  defp with_standard_error(device, fun) do
+    original = Process.whereis(:standard_error)
+    Process.unregister(:standard_error)
+    Process.register(device, :standard_error)
+
+    try do
+      fun.()
+    after
+      if Process.whereis(:standard_error), do: Process.unregister(:standard_error)
+      Process.register(original, :standard_error)
+      Process.exit(device, :kill)
+    end
+  end
+
+  # A device that reports what it is asked to write to `test`, so a test can tell who wrote.
+  defp recorder(test) do
+    spawn(fn ->
+      Stream.repeatedly(fn ->
+        receive do
+          {:io_request, from, reply_as, {:put_chars, _encoding, chars}} ->
+            send(test, {:written, IO.chardata_to_string(chars)})
+            send(from, {:io_reply, reply_as, :ok})
+        end
+      end)
+      |> Stream.run()
+    end)
+  end
+
+  defp written(acc \\ []) do
+    receive do
+      {:written, chars} -> written([chars | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  # Warns from the compiling process (unused variables), and, on the releases that check or compile in other
+  # processes, from those (an unused private function, an undefined remote call).
+  defp warning_heavy(namespace) do
+    functions = Enum.map_join(1..50, "\n", fn i -> "def f#{i}(a, b), do: :ok" end)
+
+    """
+    defmodule #{namespace}.WarningHeavy do
+    #{functions}
+    defp unused, do: :ok
+    def g, do: Nope.missing()
+    end
+    """
   end
 
   # A namespace no other compile uses, so no two tests define the same module.
